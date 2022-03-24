@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>test webworker</title>
+    <link rel="stylesheet" href="styles/index.css" />
+  </head>
+  <body>
+    <input type="file" id="file" />
+    <div class="twoColumn">
+      <div class="column left">
+        <ul id="treeView">
+          <i>Waiting...</i>
+        </ul>
+      </div>
+      <div class="column right">
+        <textarea id="fileOutput"></textarea>
+      </div>
+    </div>
+
+    <script type="module">
+      const textarea = document.getElementById("fileOutput");
+      const fileInput = document.getElementById("fileInput");
+      const treeView = document.getElementById("treeView");
+
+      function hex(buffer) {
+        const hexCodes = [];
+        const view = new DataView(buffer);
+        for (let i = 0; i < view.byteLength; i += 4) {
+          const value = view.getUint32(i);
+          const stringValue = value.toString(16);
+          const padding = "00000000";
+          const paddedValue = (padding + stringValue).slice(-padding.length);
+          hexCodes.push(paddedValue);
+        }
+        return hexCodes.join("");
+      }
+
+      function getChecksum(file) {
+        return new Promise((resolve, reject) => {
+          try {
+            const reader = new FileReader();
+            reader.onload = function () {
+              crypto.subtle
+                .digest("SHA-256", reader.result)
+                .then(function (hash) {
+                  resolve(hex(hash));
+                });
+            };
+            reader.readAsArrayBuffer(file);
+          } catch (err) {
+            reject(err);
+          }
+        });
+      }
+
+      function finish() {
+        const d = document.createElement("div");
+        d.setAttribute("id", "done");
+        d.textContent = "Done.";
+        document.body.appendChild(d);
+      }
+
+      async function fileChecksums(obj) {
+        for (const [key, val] of Object.entries(obj)) {
+          obj[key] =
+            val instanceof File
+              ? await getChecksum(val)
+              : await fileChecksums(val);
+        }
+        return obj;
+      }
+
+      ///////////////////////////UUIDv4/////////////////////////////////
+
+      var UUIDv4 = new (function () {
+        function generateNumber(limit) {
+          var value = limit * Math.random();
+          return value | 0;
+        }
+
+        function generateX() {
+          var value = generateNumber(16);
+          return value.toString(16);
+        }
+
+        function generateXes(count) {
+          var result = "";
+          for (var i = 0; i < count; ++i) {
+            result += generateX();
+          }
+          return result;
+        }
+
+        function generateVariant() {
+          var value = generateNumber(16);
+          var variant = (value & 0x3) | 0x8;
+          return variant.toString(16);
+        }
+
+        // UUID v4
+        //
+        //   varsion: M=4
+        //   variant: N
+        //   pattern: xxxxxxxx-xxxx-Mxxx-Nxxx-xxxxxxxxxxxx
+        //
+        this.generate = function () {
+          var result =
+            generateXes(8) +
+            "-" +
+            generateXes(4) +
+            "-" +
+            "4" +
+            generateXes(3) +
+            "-" +
+            generateVariant() +
+            generateXes(3) +
+            "-" +
+            generateXes(12);
+          return result;
+        };
+      })();
+
+    //   // Usage example:
+
+    //   console.log(UUIDv4.generate());
+    //   console.log(UUIDv4.generate());
+    //   console.log(UUIDv4.generate());
+    //   console.log(UUIDv4.generate());
+
+      ///////////////////////////UUIDv4/////////////////////////////////
+
+      var i = 0;
+      function walk({ node, liId, name }) {
+        const root = document.getElementById(liId);
+        if (!(node instanceof File)) {
+          const newUlId = UUIDv4.generate();
+          const newUl = document.createElement("ul");
+          newUl.classList.add("nested");
+          newUl.id = newUlId;
+          const newLi = document.createElement("li");
+          root.appendChild(newLi);
+          newLi.classList.add("folder");
+          newLi.addEventListener("click", function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            newLi.childNodes.forEach((c) => {
+              if (c.classList.contains("nested")) {
+                c.classList.toggle("active");
+              }
+            });
+          });
+
+          const span = document.createElement("span");
+          span.innerText = name;
+          newLi.appendChild(span);
+          newLi.appendChild(newUl);
+          const keys = Object.keys(node);
+          if (keys.length > 0) {
+            keys.forEach((key) => {
+              walk({
+                node: node[key],
+                liId: newUlId,
+                name: key,
+              });
+            });
+          } else {
+            const span = document.createElement("span");
+            span.innerHTML = "<i>Empty folder</i>";
+            root.appendChild(span);
+          }
+        } else {
+          const li = document.createElement("li");
+          li.innerText = node.name;
+          li.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const reader = new FileReader();
+            reader.onload = function (event) {
+              if (isASCII(event.target.result)) {
+                textarea.textContent = event.target.result;
+                downloadable = node.name;
+              } else {
+                textarea.textContent = "Sorry, we cannot display binary files";
+                downloadable = false;
+              }
+            };
+            reader.readAsText(node);
+          });
+          root.appendChild(li);
+        }
+      }
+
+      function openFirstFolder() {
+        const firstFolder = treeView.querySelector(".folder");
+        firstFolder.click();
+      }
+
+      function isASCII(str) {
+        return /^[\x00-\x7F]*$/.test(str);
+      }
+
+      import { Archive } from "../src/libarchive.js";
+
+      Archive.init({
+        workerUrl: "../dist/worker-bundle.js",
+      });
+
+      window.Archive = Archive;
+
+      document.getElementById("file").addEventListener("change", async (e) => {
+        let obj = null,
+          encEntries = false;
+        console.log("First hello");
+        try {
+          console.log("Hello inside try");
+          const file = e.currentTarget.files[0];
+          const archive = await Archive.open(file);
+          encEntries = await archive.hasEncryptedData();
+          console.log("Is Encrypted : " + encEntries);
+          await archive.usePassword("password");
+          obj = await archive.extractFiles();
+          console.log(obj);
+
+          treeView.innerHTML = "";
+
+          walk({
+            node: obj,
+            liId: "treeView",
+            name: file.name,
+          });
+          openFirstFolder();
+
+          // obj = await fileChecksums(obj);
+        } catch (err) {
+          console.error(err);
+        } finally {
+          window.obj = { files: obj, encrypted: encEntries };
+          finish();
+        }
+      });
+    </script>
+  </body>
+</html>
