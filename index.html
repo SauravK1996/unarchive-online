@@ -2,7 +2,7 @@
 <html>
   <head>
     <title>test webworker</title>
-    <link rel="stylesheet" href="styles/index.css" />
+    <link rel="stylesheet" href="/unarchive-online/styles/index.css" />
   </head>
   <body>
     <input type="file" id="file" />
@@ -198,10 +198,10 @@
         return /^[\x00-\x7F]*$/.test(str);
       }
 
-      import { Archive } from "../src/libarchive.js";
+      import { Archive } from "/unarchive-online/src/libarchive.js";
 
       Archive.init({
-        workerUrl: "../dist/worker-bundle.js",
+        workerUrl: "/unarchive-online/dist/worker-bundle.js",
       });
 
       window.Archive = Archive;
